@@ -255,7 +255,7 @@ function renderEvent(evt) {
       break;
     case 'notification':
       addEvent(
-        `<div class="label">Notification</div>${evt.sent ? 'Sent to Telegram' : `Not sent (${evt.reason})`}`,
+        `<div class="label">Customer notification</div>${evt.sent ? 'Sent to the customer\'s Telegram' : `Not sent (${evt.reason})`}`,
         evt.sent ? 'notification' : 'notification muted',
       );
       break;

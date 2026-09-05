@@ -20,7 +20,9 @@ function makeEmitter(onEvent) {
 
 // Shared by the auto-approved path and the post-approval resume path: signs
 // and submits the actual XRPL payment for a chosen offer, then confirms the
-// booking. This is the ONLY place money moves in the whole system.
+// booking. This is the ONLY place money moves in the whole system. The
+// customer-facing "you're booked" notification lives here too, since both
+// callers need to send the exact same message once payment succeeds.
 async function payForOffer(offer, trip, resources, emit) {
   const ownsClient = !resources.client;
   const client = resources.client || (await getClient());
@@ -30,6 +32,12 @@ async function payForOffer(offer, trip, resources, emit) {
 
     const booking = await payAndBook({ client, wallet, providerBase: offer.providerBaseUrl, offer, traveler: trip.traveler });
     emit({ stage: "payment", offerId: offer.offerId, txHash: booking.txHash, pnr: booking.pnr });
+
+    const result = await notifyTelegram(
+      `✅ *Flight booked!*\n${trip.origin} → ${trip.destination}, depart ${trip.departDate}\nPNR: ${booking.pnr}\nhttps://testnet.xrpl.org/transactions/${booking.txHash}`,
+    );
+    emit({ stage: "notification", channel: "telegram", audience: "customer", ...result });
+
     return booking;
   } finally {
     if (ownsClient) await client.disconnect();
@@ -85,13 +93,17 @@ export async function bookFlight(trip, resources = {}) {
     if (auth.decision === "NEEDS_APPROVAL") {
       pendingId = createPending({ trip, offer: winner, ranked, reason: auth.reason });
       emit({ stage: "pending_created", pendingId, offerId: winner.offerId });
+      // Customer-facing reassurance only — the approver acts through the
+      // dashboard's Pending Approvals panel, never via this message.
       const result = await notifyTelegram(
-        `⚠️ *Approval needed*\n${trip.origin} → ${trip.destination}, $${winner.price} ${winner.currency} via ${winner.provider}\n${auth.reason}`,
+        `⏳ *Your flight booking is under review*\n${trip.origin} → ${trip.destination}, depart ${trip.departDate}\nA reviewer will confirm shortly.`,
       );
-      emit({ stage: "notification", channel: "telegram", ...result });
+      emit({ stage: "notification", channel: "telegram", audience: "customer", ...result });
     } else if (auth.decision === "REJECTED") {
-      const result = await notifyTelegram(`❌ *Booking rejected*\n${trip.origin} → ${trip.destination}\n${auth.reason}`);
-      emit({ stage: "notification", channel: "telegram", ...result });
+      const result = await notifyTelegram(
+        `❌ *We couldn't book your flight*\n${trip.origin} → ${trip.destination}, depart ${trip.departDate}\n${auth.reason}`,
+      );
+      emit({ stage: "notification", channel: "telegram", audience: "customer", ...result });
     }
     const outcome = { status: auth.decision, reason: auth.reason, offer: winner, ranked, pendingId };
     emit({ stage: "outcome", status: outcome.status, offerId: winner.offerId, pendingId });

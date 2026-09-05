@@ -133,11 +133,15 @@ network interchange fees entirely.
   which **re-discovers the offer and checks it's still available at the
   approved price** before paying — a fare quoted when the decision was made
   isn't guaranteed to still hold by the time a human gets to it. Declining
-  removes the pending item and triggers no payment at all.
-- **Human notification** (`agent/notify.mjs`): a held or rejected booking
-  pings a Telegram chat automatically — nobody has to be watching the
-  dashboard to find out a decision needs attention. Best-effort and
-  optional: if `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` aren't set, it's a
+  removes the pending item and triggers no payment at all. Note the two
+  roles are deliberately separate: the **approver acts only through the
+  dashboard's Approve/Decline buttons**; Telegram never carries an
+  actionable approval link.
+- **Customer notification** (`agent/notify.mjs`): the traveler gets a
+  Telegram message when their booking is held for review, confirmed
+  (with PNR + XRPL transaction link), or rejected — they don't have to
+  poll a dashboard to find out what happened to their request. Best-effort
+  and optional: if `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` aren't set, it's a
   silent no-op, never a broken booking.
 - **Traceability**: full decision log per booking in `audit-log.jsonl`,
   including who/what approved or declined a held booking.
@@ -186,8 +190,8 @@ Being upfront about this, since it affects how to read the demo:
 | x402 challenge/response shape | Modeled on the general x402 pattern; not yet reconciled against the official XRPL x402 Facilitator's exact schema |
 | XRPL AI Starter Kit | **Not used** — XRPL calls are hand-rolled directly with `xrpl.js` instead |
 | Frontend / UI | **Real** — a live trace panel (`frontend/`) streams each agent stage as it happens |
-| AI reasoning (offer selection) | **Real when configured** — a genuine Claude API call via `agent/llmDecision.mjs`; verified working end-to-end via its no-key fallback path, not yet exercised with a live API key at time of writing |
-| Human notifications (Telegram) | **Real when configured** — `agent/notify.mjs` posts to a Telegram bot; verified as a clean no-op without credentials |
+| AI reasoning (offer selection) | **Real and verified** — a genuine Claude API call via `agent/llmDecision.mjs`; confirmed with a live model call and a real XRPL transaction (see hashes below), plus the no-key fallback path |
+| Human notifications (Telegram) | **Real when configured** — `agent/notify.mjs` posts to the customer's Telegram on both "under review" and "booked"; verified as a clean no-op without credentials, not yet exercised with a live bot |
 
 ---
 
@@ -257,10 +261,12 @@ Both are off by default and never break a booking if left unconfigured.
   [console.anthropic.com](https://console.anthropic.com)) to have Claude
   pick among discovered offers instead of the fixed scoring formula.
 - **Telegram alerts**: set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in
-  `.env` to get pinged when a booking is held for approval or rejected.
-  Create a bot via [@BotFather](https://t.me/BotFather), message it once,
-  then read `https://api.telegram.org/bot<token>/getUpdates` to find your
-  chat id.
+  `.env` to have the customer's chat get pinged when their booking is held
+  for review, confirmed, or rejected. This is customer-facing only — the
+  approver never approves from Telegram, only from the dashboard's Pending
+  Approvals panel. Create a bot via [@BotFather](https://t.me/BotFather),
+  message it once, then read
+  `https://api.telegram.org/bot<token>/getUpdates` to find your chat id.
 
 ---
 
@@ -285,6 +291,7 @@ project:
 - [`9B5FC4397B9209B12C65F841FFFCB738AB01F74C31EAE3E2D5971833401F6B79`](https://testnet.xrpl.org/transactions/9B5FC4397B9209B12C65F841FFFCB738AB01F74C31EAE3E2D5971833401F6B79) — booked via `npm run test:payment`, PNR `ARFEUYH`
 - [`C21A0F9FB9E139A8ED2FD2ED369ACCF93B91C4548D958533692B83DDB460A678`](https://testnet.xrpl.org/transactions/C21A0F9FB9E139A8ED2FD2ED369ACCF93B91C4548D958533692B83DDB460A678) — booked via the frontend UI (KUL → BKK), PNR `AV7I6VL`
 - [`C76C896E782AC7866BCD192A3385487ADE156EA7915F5A4E85E84E34E220B7F2`](https://testnet.xrpl.org/transactions/C76C896E782AC7866BCD192A3385487ADE156EA7915F5A4E85E84E34E220B7F2) — held as `NEEDS_APPROVAL`, then paid after a human clicked **Approve**, PNR `AJTOWGR`
+- [`C85D591B1DAB646B3EF01440A87A3E9DCE8115D08C63CD4B21B5EB0CB9735D02`](https://testnet.xrpl.org/transactions/C85D591B1DAB646B3EF01440A87A3E9DCE8115D08C63CD4B21B5EB0CB9735D02) — offer chosen by a **real Claude API call**, not the fallback formula (rationale: *"This nonstop flight departs at 09:15, almost exactly matching the preferred 09:00 time, and at $0.83 it's well within budget, offering the best balance of convenience and cost."*), PNR `AJXTYGT`
 
 A parallel `NEEDS_APPROVAL` case was also tested through to **Decline** — no
 transaction hash exists for it, which is the point: the payment path is
@@ -298,9 +305,9 @@ provably unreachable unless a human approves.
 - Reconcile the 402 challenge shape against the real XRPL x402 Facilitator
 - Escrow-based conditional payment release (pay on ticket confirmation
   rather than upfront) as a stronger failure-handling safeguard
-- Exercise the AI reasoning step with a live `ANTHROPIC_API_KEY` and record
-  a real transaction hash for it (built and fallback-tested, not yet run
-  against the live model)
+- Exercise the Telegram customer notifications with a live bot token and
+  record it working end to end (built and no-op-tested, not yet run against
+  a real chat)
 
 ---
 
