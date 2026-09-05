@@ -1,0 +1,16 @@
+{
+  "name": "flight-booking-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "provider:a": "node providers/provider-a/server.mjs",
+    "provider:b": "node providers/provider-b/server.mjs",
+    "test:quotes": "node scripts/test-quotes.mjs"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "xrpl": "^4.0.0",
+    "dotenv": "^16.4.5"
+  }
+}
