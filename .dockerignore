@@ -1,0 +1,7 @@
+node_modules
+.env
+.git
+*.log
+audit-log.jsonl
+pending-approvals.json
+PRESENTATION.md

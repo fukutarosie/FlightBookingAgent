@@ -1,0 +1,32 @@
+services:
+  provider-a:
+    build: .
+    command: node providers/provider-a/server.mjs
+    env_file: .env
+    ports:
+      - "4001:4001"
+    restart: unless-stopped
+
+  provider-b:
+    build: .
+    command: node providers/provider-b/server.mjs
+    env_file: .env
+    ports:
+      - "4002:4002"
+    restart: unless-stopped
+
+  frontend:
+    build: .
+    command: node frontend/server.mjs
+    env_file: .env
+    # Inside the Compose network, providers are reached by service name, not
+    # localhost — overrides whatever PROVIDER_A_URL/PROVIDER_B_URL is in .env.
+    environment:
+      - PROVIDER_A_URL=http://provider-a:4001
+      - PROVIDER_B_URL=http://provider-b:4002
+    ports:
+      - "3000:3000"
+    depends_on:
+      - provider-a
+      - provider-b
+    restart: unless-stopped
