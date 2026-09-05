@@ -3,3 +3,4 @@ node_modules/
 *.log
 audit-log.jsonl
 pending-approvals.json
+PRESENTATION.md
