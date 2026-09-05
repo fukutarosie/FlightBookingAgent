@@ -29,9 +29,21 @@ Trip request:
 Available offers:
 ${offerLines}
 
-Choose exactly one offer by its offerId. Respond with ONLY a JSON object and nothing else, in this exact shape:
-{"offerId": "<one of the offerIds above, verbatim>", "rationale": "<one or two sentences explaining the trade-off you made>"}`;
+Call choose_offer with exactly one offerId from the list above.`;
 }
+
+const CHOOSE_OFFER_TOOL = {
+  name: "choose_offer",
+  description: "Select the single best flight offer for the traveler and explain the trade-off.",
+  input_schema: {
+    type: "object",
+    properties: {
+      offerId: { type: "string", description: "Must exactly match one offerId from the list provided in the prompt." },
+      rationale: { type: "string", description: "One or two sentences explaining the trade-off made." },
+    },
+    required: ["offerId", "rationale"],
+  },
+};
 
 // Asks Claude to pick among the discovered offers and explain why, in place
 // of the fixed scoring formula's mechanical pick. Returns null (never
@@ -39,6 +51,13 @@ Choose exactly one offer by its offerId. Respond with ONLY a JSON object and not
 // answer can't be trusted — callers must fall back to the deterministic
 // top-ranked offer in every one of those cases. The model is never allowed
 // to affect budget/policy enforcement, only which in-budget offer to prefer.
+//
+// Uses tool use (forced via tool_choice) rather than prompting for JSON in
+// prose — the model's answer is structurally guaranteed to parse, instead
+// of relying on regex-extracting a JSON blob out of free text. (Note:
+// `temperature` is not configurable on this model family — Anthropic
+// rejects the request if it's set at all — so consistency here comes from
+// the tight, criteria-bound prompt rather than a sampling parameter.)
 export async function chooseOfferWithLLM(trip, offers) {
   const anthropic = getClient();
   if (!anthropic) return null;
@@ -48,23 +67,20 @@ export async function chooseOfferWithLLM(trip, offers) {
     response = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 300,
+      tools: [CHOOSE_OFFER_TOOL],
+      tool_choice: { type: "tool", name: "choose_offer" },
       messages: [{ role: "user", content: buildPrompt(trip, offers) }],
     });
   } catch (err) {
     return { error: String(err.message || err) };
   }
 
-  const text = response.content.find((block) => block.type === "text")?.text || "";
-  let parsed;
-  try {
-    const match = text.match(/\{[\s\S]*\}/);
-    parsed = JSON.parse(match ? match[0] : text);
-  } catch {
-    return { error: "Model response was not valid JSON" };
-  }
+  const toolUse = response.content.find((block) => block.type === "tool_use" && block.name === "choose_offer");
+  if (!toolUse) return { error: "Model did not return a choose_offer tool call" };
 
-  const chosen = offers.find((o) => o.offerId === parsed.offerId);
-  if (!chosen) return { error: `Model chose an offerId not in the discovered set: ${parsed.offerId}` };
+  const { offerId, rationale } = toolUse.input;
+  const chosen = offers.find((o) => o.offerId === offerId);
+  if (!chosen) return { error: `Model chose an offerId not in the discovered set: ${offerId}` };
 
-  return { offer: chosen, rationale: parsed.rationale || "Chosen by AI reasoning." };
+  return { offer: chosen, rationale: rationale || "Chosen by AI reasoning." };
 }
