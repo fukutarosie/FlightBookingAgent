@@ -12,8 +12,9 @@
     "frontend": "node frontend/server.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
+    "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "xrpl": "^4.0.0",
-    "dotenv": "^16.4.5"
+    "xrpl": "^4.0.0"
   }
 }

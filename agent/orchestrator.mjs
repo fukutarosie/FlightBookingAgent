@@ -7,6 +7,8 @@ import { discoverOffers } from "./discovery.mjs";
 import { rankOffers } from "./scoring.mjs";
 import { logEvent } from "./auditLog.mjs";
 import { createPending, getPending, removePending } from "./approvalStore.mjs";
+import { chooseOfferWithLLM } from "./llmDecision.mjs";
+import { notifyTelegram } from "./notify.mjs";
 
 function makeEmitter(onEvent) {
   return (event) => {
@@ -60,7 +62,21 @@ export async function bookFlight(trip, resources = {}) {
     ranked: ranked.map(({ offerId, provider, price, score, rationale }) => ({ offerId, provider, price, score, rationale })),
   });
 
-  const winner = ranked[0];
+  // Let Claude weigh the trade-offs and pick among the discovered offers,
+  // in place of always taking the fixed scoring formula's top pick. Never
+  // trusted for anything beyond *which offer* to prefer — budget/policy
+  // enforcement below is entirely deterministic and cannot be swayed by it.
+  const llmResult = await chooseOfferWithLLM(trip, ranked);
+  let winner = ranked[0];
+  let reasoning = { source: "deterministic", rationale: winner.rationale };
+  if (llmResult?.offer) {
+    winner = llmResult.offer;
+    reasoning = { source: "llm", rationale: llmResult.rationale };
+  } else if (llmResult?.error) {
+    emit({ stage: "reasoning_fallback", message: llmResult.error });
+  }
+  emit({ stage: "reasoning", source: reasoning.source, offerId: winner.offerId, rationale: reasoning.rationale });
+
   const auth = decideAuthorization(winner, trip);
   emit({ stage: "authorization", offerId: winner.offerId, decision: auth.decision, reason: auth.reason });
 
@@ -69,6 +85,13 @@ export async function bookFlight(trip, resources = {}) {
     if (auth.decision === "NEEDS_APPROVAL") {
       pendingId = createPending({ trip, offer: winner, ranked, reason: auth.reason });
       emit({ stage: "pending_created", pendingId, offerId: winner.offerId });
+      const result = await notifyTelegram(
+        `⚠️ *Approval needed*\n${trip.origin} → ${trip.destination}, $${winner.price} ${winner.currency} via ${winner.provider}\n${auth.reason}`,
+      );
+      emit({ stage: "notification", channel: "telegram", ...result });
+    } else if (auth.decision === "REJECTED") {
+      const result = await notifyTelegram(`❌ *Booking rejected*\n${trip.origin} → ${trip.destination}\n${auth.reason}`);
+      emit({ stage: "notification", channel: "telegram", ...result });
     }
     const outcome = { status: auth.decision, reason: auth.reason, offer: winner, ranked, pendingId };
     emit({ stage: "outcome", status: outcome.status, offerId: winner.offerId, pendingId });

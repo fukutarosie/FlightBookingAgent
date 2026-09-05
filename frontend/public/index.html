@@ -15,6 +15,7 @@
     --green: #3fb950;
     --yellow: #d29922;
     --red: #f85149;
+    --violet: #a371f7;
   }
   * { box-sizing: border-box; }
   body {
@@ -88,6 +89,10 @@
   .event.trip_received { border-left-color: var(--muted); }
   .event.discovery { border-left-color: var(--accent); }
   .event.ranking { border-left-color: var(--accent); }
+  .event.reasoning.llm { border-left-color: var(--violet); background: rgba(163,113,247,0.08); }
+  .event.reasoning.deterministic { border-left-color: var(--muted); }
+  .event.notification { border-left-color: var(--accent); }
+  .event.notification.muted { border-left-color: var(--panel-border); color: var(--muted); }
   .event.authorization.AUTO_APPROVED { border-left-color: var(--green); }
   .event.authorization.NEEDS_APPROVAL { border-left-color: var(--yellow); }
   .event.authorization.REJECTED { border-left-color: var(--red); }
@@ -238,6 +243,22 @@ function renderEvent(evt) {
       addEvent(`<div class="label">Ranking</div><table>${rows}</table>`, 'ranking');
       break;
     }
+    case 'reasoning':
+      addEvent(
+        `<div class="label">${evt.source === 'llm' ? 'AI reasoning' : 'Reasoning (fallback)'}</div>${evt.rationale}` +
+          (evt.source !== 'llm' ? `<br><span style="color:var(--muted)">No AI model available &mdash; used the deterministic top pick.</span>` : ''),
+        'reasoning ' + evt.source,
+      );
+      break;
+    case 'reasoning_fallback':
+      addEvent(`<div class="label">AI reasoning unavailable</div>${evt.message}<br><span style="color:var(--muted)">Falling back to deterministic ranking.</span>`, 'error');
+      break;
+    case 'notification':
+      addEvent(
+        `<div class="label">Notification</div>${evt.sent ? 'Sent to Telegram' : `Not sent (${evt.reason})`}`,
+        evt.sent ? 'notification' : 'notification muted',
+      );
+      break;
     case 'authorization':
       addEvent(
         `<div class="label">Authorization</div><span class="badge ${evt.decision}">${evt.decision.replace('_', ' ')}</span><br>${evt.reason}`,
