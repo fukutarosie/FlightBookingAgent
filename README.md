@@ -9,8 +9,6 @@ comparison spreadsheet, an approval form, or a payment page; for fares
 above the auto-approve threshold, a human reviews and approves before any
 money moves.
 
-Built for the [Ripple: AI-Native Business on XRPL](https://github.com/Singhacks-2026/ripple) challenge, SingHacks 2026.
-
 ---
 
 ## The problem
@@ -380,3 +378,5 @@ Node.js (ESM) · Express (mock providers) · `xrpl.js` (XRPL Testnet) ·
 RLUSD (Testnet issuer `rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV`) · x402-style
 payment challenge/response · Claude (`@anthropic-ai/sdk`) for offer
 reasoning · Telegram Bot API for human notifications
+
+Built for the [Ripple: AI-Native Business on XRPL](https://github.com/Singhacks-2026/ripple) challenge, SingHacks 2026.
