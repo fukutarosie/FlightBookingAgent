@@ -9,7 +9,8 @@
     "test:quotes": "node scripts/test-quotes.mjs",
     "test:payment": "node scripts/test-real-payment.mjs",
     "agent": "node scripts/run-agent.mjs",
-    "frontend": "node frontend/server.mjs"
+    "frontend": "node frontend/server.mjs",
+    "telegram:chat-id": "node scripts/find-telegram-chat-id.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",

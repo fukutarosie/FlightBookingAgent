@@ -191,7 +191,7 @@ Being upfront about this, since it affects how to read the demo:
 | XRPL AI Starter Kit | **Not used** — XRPL calls are hand-rolled directly with `xrpl.js` instead |
 | Frontend / UI | **Real** — a live trace panel (`frontend/`) streams each agent stage as it happens |
 | AI reasoning (offer selection) | **Real and verified** — a genuine Claude API call via `agent/llmDecision.mjs`; confirmed with a live model call and a real XRPL transaction (see hashes below), plus the no-key fallback path |
-| Human notifications (Telegram) | **Real when configured** — `agent/notify.mjs` posts to the customer's Telegram on both "under review" and "booked"; verified as a clean no-op without credentials, not yet exercised with a live bot |
+| Human notifications (Telegram) | **Real and verified** — a live bot delivered the "under review" message to a real chat during testing; verified as a clean no-op without credentials too |
 
 ---
 
@@ -265,8 +265,8 @@ Both are off by default and never break a booking if left unconfigured.
   for review, confirmed, or rejected. This is customer-facing only — the
   approver never approves from Telegram, only from the dashboard's Pending
   Approvals panel. Create a bot via [@BotFather](https://t.me/BotFather),
-  message it once, then read
-  `https://api.telegram.org/bot<token>/getUpdates` to find your chat id.
+  message it once, set `TELEGRAM_BOT_TOKEN`, then run
+  `npm run telegram:chat-id` to find your chat id automatically.
 
 ---
 
@@ -305,9 +305,10 @@ provably unreachable unless a human approves.
 - Reconcile the 402 challenge shape against the real XRPL x402 Facilitator
 - Escrow-based conditional payment release (pay on ticket confirmation
   rather than upfront) as a stronger failure-handling safeguard
-- Exercise the Telegram customer notifications with a live bot token and
-  record it working end to end (built and no-op-tested, not yet run against
-  a real chat)
+- Record a real "booking confirmed" and "rejected" Telegram message — the
+  "under review" message is confirmed live; the other two share the same
+  `notifyTelegram()` code path but haven't been individually triggered
+  against a real chat yet
 
 ---
 
