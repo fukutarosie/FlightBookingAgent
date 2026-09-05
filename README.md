@@ -84,7 +84,16 @@ network interchange fees entirely.
    departure-time fit, and non-stop preference, with a human-readable
    rationale per offer (e.g. *"$0.83 RLUSD, departs 09:15 (preferred
    09:00), non-stop"*).
-3. **Policy / authorization** (`agent/policy.mjs`) — three tiers, checked
+3. **AI reasoning** (`agent/llmDecision.mjs`) — hands the trip request and
+   every discovered offer to Claude, which weighs the same trade-offs a
+   human would and picks one, explaining its choice in plain language. This
+   replaces the scoring formula's mechanical top pick with genuine model
+   judgment when `ANTHROPIC_API_KEY` is set; without a key (or on any model
+   error or an invalid answer), it falls back to the deterministic top-ranked
+   offer with no error surfaced to the user — the booking never breaks
+   because of the AI step. **The model only ever chooses *which* in-budget
+   offer to prefer — it has no ability to affect the policy check below.**
+4. **Policy / authorization** (`agent/policy.mjs`) — three tiers, checked
    *before* any payment code is reachable:
    - `AUTO_APPROVED` — within budget and under the auto-approve limit → agent
      books and pays without human sign-off
@@ -92,21 +101,21 @@ network interchange fees entirely.
      held, no payment fires
    - `REJECTED` — exceeds the requester's budget or the company hard cap →
      refused outright
-4. **Payment** (`x402/payAndBook.mjs`) — on `AUTO_APPROVED` only: calls the
+5. **Payment** (`x402/payAndBook.mjs`) — on `AUTO_APPROVED` only: calls the
    winning provider's `POST /book`, receives an **HTTP 402** challenge with
    the exact amount/currency/destination owed, submits a real XRPL
    `Payment` transaction, and retries with the transaction hash as proof.
-5. **Verification** (`xrpl/verifyPayment.mjs`) — the provider independently
+6. **Verification** (`xrpl/verifyPayment.mjs`) — the provider independently
    checks the referenced transaction on the XRPL ledger (destination,
    amount, currency, `tesSUCCESS`) before confirming — it never trusts the
    client's word for what was paid. Includes replay protection so one
    transaction can't settle two bookings.
-6. **Delivery** — the provider returns a confirmed PNR, which the agent
+7. **Delivery** — the provider returns a confirmed PNR, which the agent
    hands back along with the transaction hash.
-7. **Audit trail** (`agent/auditLog.mjs`) — every stage (trip received,
-   discovery, ranking, authorization, payment, outcome) is appended to
-   `audit-log.jsonl`, so every decision the agent made is inspectable after
-   the fact.
+8. **Audit trail** (`agent/auditLog.mjs`) — every stage (trip received,
+   discovery, ranking, reasoning, authorization, notification, payment,
+   outcome) is appended to `audit-log.jsonl`, so every decision the agent
+   made — and why — is inspectable after the fact.
 
 ### Trust & governance
 
@@ -125,6 +134,11 @@ network interchange fees entirely.
   approved price** before paying — a fare quoted when the decision was made
   isn't guaranteed to still hold by the time a human gets to it. Declining
   removes the pending item and triggers no payment at all.
+- **Human notification** (`agent/notify.mjs`): a held or rejected booking
+  pings a Telegram chat automatically — nobody has to be watching the
+  dashboard to find out a decision needs attention. Best-effort and
+  optional: if `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` aren't set, it's a
+  silent no-op, never a broken booking.
 - **Traceability**: full decision log per booking in `audit-log.jsonl`,
   including who/what approved or declined a held booking.
 - **Payment integrity**: providers price bookings from their own
@@ -143,16 +157,19 @@ perform autonomously?" governance question, as actually enforced in code
 | Action | Autonomous? |
 |---|---|
 | Query flight quotes from providers | **Always autonomous** — read-only, no cost |
-| Rank/score offers against trip preferences | **Always autonomous** — no cost |
+| Rank/score offers, and choose which offer to prefer (deterministic formula or, when configured, Claude's own reasoning) | **Always autonomous** — no cost either way; this is judgment about *which* option, never about *whether* to spend beyond policy |
 | Refuse a booking that exceeds budget or the company hard cap | **Always autonomous** — no money moves either way |
 | **Sign and submit the XRPL payment, and confirm the booking** | **Autonomous only if price ≤ auto-approve limit AND price ≤ the requester's own stated budget.** This is the only real financial action in the system, and it's the one action gated by policy. |
 | Same payment action, priced between the auto-approve limit and the hard cap | **Requires a human's explicit Approve** — held in `pending-approvals.json` until acted on |
 | Same payment action, priced above the hard cap or the requester's budget | **Never allowed, human or not** — outright refusal, no approval path exists |
 
-In short: discovery and ranking are unrestricted because they have no
-real-world consequence; the *only* autonomous financial action is the XRPL
-payment itself, and it only fires without a human when the price clears
-both the requester's own budget and the company's auto-approve threshold.
+In short: discovery, ranking, and even AI-driven offer selection are
+unrestricted because they have no real-world consequence — the model
+chooses *which* flight, never *whether* the company is willing to pay for
+it. The *only* autonomous financial action is the XRPL payment itself, and
+it only fires without a human when the price clears both the requester's
+own budget and the company's auto-approve threshold, regardless of whether
+that offer was picked by Claude or by the fallback scoring formula.
 
 ---
 
@@ -169,6 +186,8 @@ Being upfront about this, since it affects how to read the demo:
 | x402 challenge/response shape | Modeled on the general x402 pattern; not yet reconciled against the official XRPL x402 Facilitator's exact schema |
 | XRPL AI Starter Kit | **Not used** — XRPL calls are hand-rolled directly with `xrpl.js` instead |
 | Frontend / UI | **Real** — a live trace panel (`frontend/`) streams each agent stage as it happens |
+| AI reasoning (offer selection) | **Real when configured** — a genuine Claude API call via `agent/llmDecision.mjs`; verified working end-to-end via its no-key fallback path, not yet exercised with a live API key at time of writing |
+| Human notifications (Telegram) | **Real when configured** — `agent/notify.mjs` posts to a Telegram bot; verified as a clean no-op without credentials |
 
 ---
 
@@ -230,6 +249,19 @@ npm run frontend
 Then open [http://localhost:3000](http://localhost:3000). Requires both
 providers (`npm run provider:a` / `npm run provider:b`) running first.
 
+### Optional: AI reasoning and notifications
+
+Both are off by default and never break a booking if left unconfigured.
+
+- **AI reasoning**: set `ANTHROPIC_API_KEY` in `.env` (get one at
+  [console.anthropic.com](https://console.anthropic.com)) to have Claude
+  pick among discovered offers instead of the fixed scoring formula.
+- **Telegram alerts**: set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in
+  `.env` to get pinged when a booking is held for approval or rejected.
+  Create a bot via [@BotFather](https://t.me/BotFather), message it once,
+  then read `https://api.telegram.org/bot<token>/getUpdates` to find your
+  chat id.
+
 ---
 
 ## Example run
@@ -266,8 +298,9 @@ provably unreachable unless a human approves.
 - Reconcile the 402 challenge shape against the real XRPL x402 Facilitator
 - Escrow-based conditional payment release (pay on ticket confirmation
   rather than upfront) as a stronger failure-handling safeguard
-- Notify a human when a booking is held for approval (Slack/email) instead
-  of relying on someone checking the dashboard
+- Exercise the AI reasoning step with a live `ANTHROPIC_API_KEY` and record
+  a real transaction hash for it (built and fallback-tested, not yet run
+  against the live model)
 
 ---
 
@@ -275,4 +308,5 @@ provably unreachable unless a human approves.
 
 Node.js (ESM) · Express (mock providers) · `xrpl.js` (XRPL Testnet) ·
 RLUSD (Testnet issuer `rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV`) · x402-style
-payment challenge/response
+payment challenge/response · Claude (`@anthropic-ai/sdk`) for offer
+reasoning · Telegram Bot API for human notifications
