@@ -6,7 +6,8 @@
   "scripts": {
     "provider:a": "node providers/provider-a/server.mjs",
     "provider:b": "node providers/provider-b/server.mjs",
-    "test:quotes": "node scripts/test-quotes.mjs"
+    "test:quotes": "node scripts/test-quotes.mjs",
+    "test:payment": "node scripts/test-real-payment.mjs"
   },
   "dependencies": {
     "express": "^4.19.2",
