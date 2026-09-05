@@ -13,20 +13,26 @@ export async function verifyRlusdPayment({ client, txHash, expectedAmount, expec
   }
 
   const { result } = response;
+  // rippled's API version 2 (what a current server returns by default) nests
+  // the submitted transaction under tx_json rather than top-level fields.
+  const txFields = result.tx_json || result;
+
   if (!result.validated) return { valid: false, reason: "transaction not yet validated" };
-  if (result.TransactionType !== "Payment") return { valid: false, reason: "not a Payment transaction" };
+  if (txFields.TransactionType !== "Payment") return { valid: false, reason: "not a Payment transaction" };
   if (result.meta?.TransactionResult !== "tesSUCCESS") {
     return { valid: false, reason: `transaction result was ${result.meta?.TransactionResult}` };
   }
-  if (result.Destination !== expectedDestination) {
+  if (txFields.Destination !== expectedDestination) {
     return { valid: false, reason: "destination address does not match" };
   }
 
-  const amount = result.Amount;
-  if (typeof amount !== "object" || amount.currency !== RLUSD_CURRENCY || amount.issuer !== RLUSD_TESTNET_ISSUER) {
+  // Use the actually-delivered amount, not the requested Amount/DeliverMax —
+  // the two can differ on a partial payment.
+  const delivered = result.meta?.delivered_amount;
+  if (typeof delivered !== "object" || delivered.currency !== RLUSD_CURRENCY || delivered.issuer !== RLUSD_TESTNET_ISSUER) {
     return { valid: false, reason: "payment was not in RLUSD" };
   }
-  if (Number(amount.value) < Number(expectedAmount)) {
+  if (Number(delivered.value) < Number(expectedAmount)) {
     return { valid: false, reason: "payment amount was less than required" };
   }
 

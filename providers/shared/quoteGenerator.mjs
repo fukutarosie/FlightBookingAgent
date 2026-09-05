@@ -10,7 +10,7 @@ function baseFareFor(origin, destination) {
     .update(`${origin.trim().toLowerCase()}-${destination.trim().toLowerCase()}`)
     .digest();
   const raw = hash.readUInt16BE(0);
-  return 2 + (raw % 8); // 2 - 9 RLUSD base fare
+  return 0.3 + (raw % 7) * 0.1; // 0.3 - 0.9 RLUSD base fare
 }
 
 export function generateOffers({
