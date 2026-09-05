@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>FlightAgent</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #121820;
+    --panel-border: #1f2a36;
+    --text: #e6edf3;
+    --muted: #8b9bab;
+    --accent: #4da3ff;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  .layout {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 20px;
+    padding: 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  @media (max-width: 800px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  .panel h2 { margin: 0 0 14px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  label { display: block; font-size: 13px; margin: 12px 0 4px; color: var(--muted); }
+  input {
+    width: 100%;
+    padding: 8px 10px;
+    background: #0b0f14;
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 14px;
+  }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; }
+  button {
+    width: 100%;
+    margin-top: 18px;
+    padding: 10px;
+    background: var(--accent);
+    color: #04101c;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .feed { display: flex; flex-direction: column; gap: 10px; min-height: 300px; }
+  .empty { color: var(--muted); font-size: 14px; }
+  .event {
+    border: 1px solid var(--panel-border);
+    border-left-width: 3px;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 13px;
+    animation: fadeIn 0.25s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .event .label { font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
+  .event.trip_received { border-left-color: var(--muted); }
+  .event.discovery { border-left-color: var(--accent); }
+  .event.ranking { border-left-color: var(--accent); }
+  .event.authorization.AUTO_APPROVED { border-left-color: var(--green); }
+  .event.authorization.NEEDS_APPROVAL { border-left-color: var(--yellow); }
+  .event.authorization.REJECTED { border-left-color: var(--red); }
+  .event.payment { border-left-color: var(--green); }
+  .event.outcome.BOOKED { border-left-color: var(--green); background: rgba(63,185,80,0.08); }
+  .event.outcome.NEEDS_APPROVAL, .event.outcome.REJECTED, .event.outcome.NO_OFFERS { background: rgba(248,81,73,0.06); }
+  .event.error { border-left-color: var(--red); background: rgba(248,81,73,0.08); }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  td { padding: 4px 6px; border-top: 1px solid var(--panel-border); }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge.AUTO_APPROVED { background: rgba(63,185,80,0.15); color: var(--green); }
+  .badge.NEEDS_APPROVAL { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  .badge.REJECTED { background: rgba(248,81,73,0.15); color: var(--red); }
+  a { color: var(--accent); }
+  .top-pick { font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>FlightAgent</h1>
+  <p>AI agent — discovers, decides, and pays for flights on XRPL via x402</p>
+</header>
+
+<div class="layout">
+  <div class="panel">
+    <h2>Trip request</h2>
+    <form id="trip-form">
+      <div class="row">
+        <div>
+          <label>Origin</label>
+          <input name="origin" placeholder="SIN" value="SIN" required />
+        </div>
+        <div>
+          <label>Destination</label>
+          <input name="destination" placeholder="NRT" value="NRT" required />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Depart date</label>
+          <input type="date" name="departDate" value="2026-10-12" required />
+        </div>
+        <div>
+          <label>Return date</label>
+          <input type="date" name="returnDate" value="2026-10-19" />
+        </div>
+      </div>
+      <label>Preferred departure time</label>
+      <input type="time" name="preferredTime" value="09:00" />
+      <label>Max price (RLUSD)</label>
+      <input type="number" step="0.01" name="maxPrice" value="5" required />
+      <label>Traveler name</label>
+      <input name="traveler" placeholder="Jane Doe" value="Fukutaro Sie" />
+      <button type="submit" id="submit-btn">Book Flight</button>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2>Agent trace</h2>
+    <div class="feed" id="feed">
+      <div class="empty">Submit a trip request to watch the agent discover, decide, and pay.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const form = document.getElementById('trip-form');
+const feed = document.getElementById('feed');
+const submitBtn = document.getElementById('submit-btn');
+
+function clearFeed() {
+  feed.innerHTML = '';
+}
+
+function addEvent(html, classes) {
+  const div = document.createElement('div');
+  div.className = 'event ' + classes;
+  div.innerHTML = html;
+  feed.appendChild(div);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function explorerLink(hash) {
+  return `<a href="https://testnet.xrpl.org/transactions/${hash}" target="_blank" rel="noopener">${hash.slice(0, 12)}&hellip;</a>`;
+}
+
+function renderEvent(evt) {
+  switch (evt.stage) {
+    case 'trip_received':
+      addEvent(
+        `<div class="label">Trip received</div>${evt.trip.origin} &rarr; ${evt.trip.destination}, depart ${evt.trip.departDate}${evt.trip.returnDate ? ', return ' + evt.trip.returnDate : ''}, budget $${evt.trip.priceRange.max}`,
+        'trip_received',
+      );
+      break;
+    case 'discovery':
+      addEvent(
+        `<div class="label">Discovery</div>Found ${evt.offersFound} offer(s) across providers` +
+          (evt.providerErrors.length ? `<br><span style="color:var(--red)">${evt.providerErrors.length} provider error(s)</span>` : ''),
+        'discovery',
+      );
+      break;
+    case 'ranking': {
+      const rows = evt.ranked
+        .map(
+          (o, i) =>
+            `<tr class="${i === 0 ? 'top-pick' : ''}"><td>${i === 0 ? '&#9733;' : ''} ${o.provider}</td><td>$${o.price}</td><td>${o.rationale}</td><td>${o.score.toFixed(2)}</td></tr>`,
+        )
+        .join('');
+      addEvent(`<div class="label">Ranking</div><table>${rows}</table>`, 'ranking');
+      break;
+    }
+    case 'authorization':
+      addEvent(
+        `<div class="label">Authorization</div><span class="badge ${evt.decision}">${evt.decision.replace('_', ' ')}</span><br>${evt.reason}`,
+        'authorization ' + evt.decision,
+      );
+      break;
+    case 'payment':
+      addEvent(
+        `<div class="label">Payment</div>Paid via XRPL Testnet &mdash; tx ${explorerLink(evt.txHash)}`,
+        'payment',
+      );
+      break;
+    case 'outcome':
+      if (evt.status === 'BOOKED') {
+        addEvent(`<div class="label">Outcome</div>Booking confirmed &mdash; PNR <strong>${evt.pnr}</strong>`, 'outcome BOOKED');
+      } else {
+        addEvent(`<div class="label">Outcome</div>${evt.status.replace('_', ' ')}`, 'outcome ' + evt.status);
+      }
+      break;
+    case 'error':
+      addEvent(`<div class="label">Error</div>${evt.message}`, 'error');
+      break;
+  }
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  clearFeed();
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Working…';
+
+  const data = Object.fromEntries(new FormData(form).entries());
+
+  try {
+    const res = await fetch('/api/book', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 1);
+        if (line.trim()) renderEvent(JSON.parse(line));
+      }
+    }
+  } catch (err) {
+    addEvent(`<div class="label">Error</div>${err.message}`, 'error');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Book Flight';
+  }
+});
+</script>
+</body>
+</html>

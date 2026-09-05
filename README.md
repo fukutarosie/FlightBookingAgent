@@ -135,7 +135,7 @@ Being upfront about this, since it affects how to read the demo:
 | Fare amounts | **Scaled down** (~$0.3–1 RLUSD) so a single Testnet RLUSD faucet claim can fully fund an end-to-end demo — not representative of real fare prices |
 | x402 challenge/response shape | Modeled on the general x402 pattern; not yet reconciled against the official XRPL x402 Facilitator's exact schema |
 | XRPL AI Starter Kit | **Not used** — XRPL calls are hand-rolled directly with `xrpl.js` instead |
-| Frontend / UI | **Not built yet** — everything currently runs via CLI |
+| Frontend / UI | **Real** — a live trace panel (`frontend/`) streams each agent stage as it happens |
 
 ---
 
@@ -183,6 +183,20 @@ npm run test:quotes    # smoke-test both providers' quote/book shape (no real pa
 npm run test:payment   # one real XRPL payment against provider-a directly
 ```
 
+### Frontend
+
+A live trace panel lets you edit the trip request (origin, destination,
+dates, preferred time, price range, traveler name) in a form and watch the
+agent's discovery, ranking, authorization decision, payment, and outcome
+stream in as they happen — not just a final result.
+
+```bash
+npm run frontend
+```
+
+Then open [http://localhost:3000](http://localhost:3000). Requires both
+providers (`npm run provider:a` / `npm run provider:b`) running first.
+
 ---
 
 ## Example run
@@ -204,12 +218,12 @@ project:
 
 - [`A7C69D5E9376A94C27452CE4D43B3C60988EDE4B083D873A81F321BDEAC49B90`](https://testnet.xrpl.org/transactions/A7C69D5E9376A94C27452CE4D43B3C60988EDE4B083D873A81F321BDEAC49B90) — booked via `npm run agent` (full orchestrator loop), PNR `A2LZ97J`
 - [`9B5FC4397B9209B12C65F841FFFCB738AB01F74C31EAE3E2D5971833401F6B79`](https://testnet.xrpl.org/transactions/9B5FC4397B9209B12C65F841FFFCB738AB01F74C31EAE3E2D5971833401F6B79) — booked via `npm run test:payment`, PNR `ARFEUYH`
+- [`C21A0F9FB9E139A8ED2FD2ED369ACCF93B91C4548D958533692B83DDB460A678`](https://testnet.xrpl.org/transactions/C21A0F9FB9E139A8ED2FD2ED369ACCF93B91C4548D958533692B83DDB460A678) — booked via the frontend UI (KUL → BKK), PNR `AV7I6VL`
 
 ---
 
 ## Roadmap / not yet built
 
-- Frontend trace panel (discovery → ranking → payment → ticket, visualized)
 - XRPL AI Starter Kit integration in place of hand-rolled `xrpl.js` calls
 - Reconcile the 402 challenge shape against the real XRPL x402 Facilitator
 - Escrow-based conditional payment release (pay on ticket confirmation

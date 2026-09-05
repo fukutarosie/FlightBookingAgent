@@ -8,7 +8,8 @@
     "provider:b": "node providers/provider-b/server.mjs",
     "test:quotes": "node scripts/test-quotes.mjs",
     "test:payment": "node scripts/test-real-payment.mjs",
-    "agent": "node scripts/run-agent.mjs"
+    "agent": "node scripts/run-agent.mjs",
+    "frontend": "node frontend/server.mjs"
   },
   "dependencies": {
     "express": "^4.19.2",
