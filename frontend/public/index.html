@@ -40,6 +40,7 @@
   @media (max-width: 800px) {
     .layout { grid-template-columns: 1fr; }
   }
+  .col { display: flex; flex-direction: column; gap: 20px; }
   .panel {
     background: var(--panel);
     border: 1px solid var(--panel-border);
@@ -60,8 +61,6 @@
   .row { display: flex; gap: 10px; }
   .row > div { flex: 1; }
   button {
-    width: 100%;
-    margin-top: 18px;
     padding: 10px;
     background: var(--accent);
     color: #04101c;
@@ -71,6 +70,8 @@
     font-size: 14px;
     cursor: pointer;
   }
+  button.full { width: 100%; margin-top: 18px; }
+  button.decline { background: transparent; border: 1px solid var(--red); color: var(--red); }
   button:disabled { opacity: 0.5; cursor: default; }
   .feed { display: flex; flex-direction: column; gap: 10px; min-height: 300px; }
   .empty { color: var(--muted); font-size: 14px; }
@@ -92,7 +93,8 @@
   .event.authorization.REJECTED { border-left-color: var(--red); }
   .event.payment { border-left-color: var(--green); }
   .event.outcome.BOOKED { border-left-color: var(--green); background: rgba(63,185,80,0.08); }
-  .event.outcome.NEEDS_APPROVAL, .event.outcome.REJECTED, .event.outcome.NO_OFFERS { background: rgba(248,81,73,0.06); }
+  .event.outcome.NEEDS_APPROVAL { border-left-color: var(--yellow); background: rgba(210,153,34,0.06); }
+  .event.outcome.REJECTED, .event.outcome.NO_OFFERS, .event.outcome.EXPIRED, .event.outcome.DECLINED { border-left-color: var(--red); background: rgba(248,81,73,0.06); }
   .event.error { border-left-color: var(--red); background: rgba(248,81,73,0.08); }
   table { width: 100%; border-collapse: collapse; margin-top: 6px; }
   td { padding: 4px 6px; border-top: 1px solid var(--panel-border); }
@@ -108,6 +110,10 @@
   .badge.REJECTED { background: rgba(248,81,73,0.15); color: var(--red); }
   a { color: var(--accent); }
   .top-pick { font-weight: 600; }
+  .approval-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .approval-actions button { flex: 1; }
+  .pending-item { border: 1px solid var(--panel-border); border-left: 3px solid var(--yellow); border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 10px; }
+  .pending-item:last-child { margin-bottom: 0; }
 </style>
 </head>
 <body>
@@ -117,37 +123,44 @@
 </header>
 
 <div class="layout">
-  <div class="panel">
-    <h2>Trip request</h2>
-    <form id="trip-form">
-      <div class="row">
-        <div>
-          <label>Origin</label>
-          <input name="origin" placeholder="SIN" value="SIN" required />
+  <div class="col">
+    <div class="panel">
+      <h2>Trip request</h2>
+      <form id="trip-form">
+        <div class="row">
+          <div>
+            <label>Origin</label>
+            <input name="origin" placeholder="SIN" value="SIN" required />
+          </div>
+          <div>
+            <label>Destination</label>
+            <input name="destination" placeholder="NRT" value="NRT" required />
+          </div>
         </div>
-        <div>
-          <label>Destination</label>
-          <input name="destination" placeholder="NRT" value="NRT" required />
+        <div class="row">
+          <div>
+            <label>Depart date</label>
+            <input type="date" name="departDate" value="2026-10-12" required />
+          </div>
+          <div>
+            <label>Return date</label>
+            <input type="date" name="returnDate" value="2026-10-19" />
+          </div>
         </div>
-      </div>
-      <div class="row">
-        <div>
-          <label>Depart date</label>
-          <input type="date" name="departDate" value="2026-10-12" required />
-        </div>
-        <div>
-          <label>Return date</label>
-          <input type="date" name="returnDate" value="2026-10-19" />
-        </div>
-      </div>
-      <label>Preferred departure time</label>
-      <input type="time" name="preferredTime" value="09:00" />
-      <label>Max price (RLUSD)</label>
-      <input type="number" step="0.01" name="maxPrice" value="5" required />
-      <label>Traveler name</label>
-      <input name="traveler" placeholder="Jane Doe" value="Fukutaro Sie" />
-      <button type="submit" id="submit-btn">Book Flight</button>
-    </form>
+        <label>Preferred departure time</label>
+        <input type="time" name="preferredTime" value="09:00" />
+        <label>Max price (RLUSD)</label>
+        <input type="number" step="0.01" name="maxPrice" value="5" required />
+        <label>Traveler name</label>
+        <input name="traveler" placeholder="Jane Doe" value="Fukutaro Sie" />
+        <button type="submit" class="full" id="submit-btn">Book Flight</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2>Pending approvals</h2>
+      <div id="pending-list"><div class="empty">None right now.</div></div>
+    </div>
   </div>
 
   <div class="panel">
@@ -162,6 +175,7 @@
 const form = document.getElementById('trip-form');
 const feed = document.getElementById('feed');
 const submitBtn = document.getElementById('submit-btn');
+const pendingList = document.getElementById('pending-list');
 
 function clearFeed() {
   feed.innerHTML = '';
@@ -173,10 +187,30 @@ function addEvent(html, classes) {
   div.innerHTML = html;
   feed.appendChild(div);
   feed.scrollTop = feed.scrollHeight;
+  return div;
 }
 
 function explorerLink(hash) {
   return `<a href="https://testnet.xrpl.org/transactions/${hash}" target="_blank" rel="noopener">${hash.slice(0, 12)}&hellip;</a>`;
+}
+
+// Streams NDJSON from a POST endpoint, calling onEvent for each line.
+async function streamRequest(url, body, onEvent) {
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx;
+    while ((idx = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 1);
+      if (line.trim()) onEvent(JSON.parse(line));
+    }
+  }
 }
 
 function renderEvent(evt) {
@@ -210,6 +244,19 @@ function renderEvent(evt) {
         'authorization ' + evt.decision,
       );
       break;
+    case 'pending_created':
+      addEvent(`<div class="label">Held for approval</div>Awaiting a human decision — see "Pending approvals".`, 'authorization NEEDS_APPROVAL');
+      refreshPending();
+      break;
+    case 'approval_received':
+      addEvent(`<div class="label">Approval received</div>Re-checking the offer is still available before paying&hellip;`, 'authorization NEEDS_APPROVAL');
+      break;
+    case 'approval_invalidated':
+      addEvent(`<div class="label">Approval invalidated</div>Offer changed or expired since it was held.`, 'error');
+      break;
+    case 'approval_declined':
+      addEvent(`<div class="label">Declined</div>Booking will not proceed.`, 'error');
+      break;
     case 'payment':
       addEvent(
         `<div class="label">Payment</div>Paid via XRPL Testnet &mdash; tx ${explorerLink(evt.txHash)}`,
@@ -222,11 +269,46 @@ function renderEvent(evt) {
       } else {
         addEvent(`<div class="label">Outcome</div>${evt.status.replace('_', ' ')}`, 'outcome ' + evt.status);
       }
+      refreshPending();
       break;
     case 'error':
       addEvent(`<div class="label">Error</div>${evt.message}`, 'error');
       break;
   }
+}
+
+function renderPendingItem(item) {
+  const div = document.createElement('div');
+  div.className = 'pending-item';
+  div.innerHTML = `
+    <strong>${item.trip.origin} &rarr; ${item.trip.destination}</strong> &mdash; $${item.offer.price} ${item.offer.currency} via ${item.offer.provider}<br>
+    <span style="color:var(--muted)">${item.reason}</span>
+    <div class="approval-actions">
+      <button data-action="approve" data-id="${item.id}">Approve</button>
+      <button data-action="decline" data-id="${item.id}" class="decline">Decline</button>
+    </div>
+  `;
+  div.querySelectorAll('button').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      div.querySelectorAll('button').forEach((b) => (b.disabled = true));
+      try {
+        await streamRequest(`/api/approvals/${btn.dataset.id}/${btn.dataset.action}`, {}, renderEvent);
+      } catch (err) {
+        addEvent(`<div class="label">Error</div>${err.message}`, 'error');
+      }
+    });
+  });
+  return div;
+}
+
+async function refreshPending() {
+  const items = await fetch('/api/approvals').then((r) => r.json());
+  pendingList.innerHTML = '';
+  if (items.length === 0) {
+    pendingList.innerHTML = '<div class="empty">None right now.</div>';
+    return;
+  }
+  items.forEach((item) => pendingList.appendChild(renderPendingItem(item)));
 }
 
 form.addEventListener('submit', async (e) => {
@@ -238,25 +320,7 @@ form.addEventListener('submit', async (e) => {
   const data = Object.fromEntries(new FormData(form).entries());
 
   try {
-    const res = await fetch('/api/book', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let idx;
-      while ((idx = buffer.indexOf('\n')) >= 0) {
-        const line = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 1);
-        if (line.trim()) renderEvent(JSON.parse(line));
-      }
-    }
+    await streamRequest('/api/book', data, renderEvent);
   } catch (err) {
     addEvent(`<div class="label">Error</div>${err.message}`, 'error');
   } finally {
@@ -264,6 +328,8 @@ form.addEventListener('submit', async (e) => {
     submitBtn.textContent = 'Book Flight';
   }
 });
+
+refreshPending();
 </script>
 </body>
 </html>

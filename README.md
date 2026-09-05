@@ -4,8 +4,10 @@ An AI agent that fully automates flight booking for a company: given a trip
 request (origin, destination, dates, time window, price range), it discovers
 fares across multiple providers, decides which one to book against company
 policy, pays for it autonomously via **x402** on the **XRP Ledger**, and
-delivers the confirmed ticket — with no human touching a comparison
-spreadsheet, an approval form, or a payment page.
+delivers the confirmed ticket. For fares within policy, no human touches a
+comparison spreadsheet, an approval form, or a payment page; for fares
+above the auto-approve threshold, a human reviews and approves before any
+money moves.
 
 Built for the [Ripple: AI-Native Business on XRPL](https://github.com/Singhacks-2026/ripple) challenge.
 
@@ -111,15 +113,46 @@ network interchange fees entirely.
 - **Spending controls**: the policy check runs before payment code is ever
   reachable — an offer that fails policy simply never reaches the payment
   path.
-- **Authorization tiers**: auto-book under a threshold, hold above it,
-  refuse past a hard cap (see `agent/config.mjs`).
-- **Traceability**: full decision log per booking in `audit-log.jsonl`.
+- **Authorization tiers**: auto-book under a threshold, hold for human
+  approval above it, refuse outright past a hard cap (see `agent/config.mjs`).
+- **Human-in-the-loop approval**: a `NEEDS_APPROVAL` decision is persisted
+  to `pending-approvals.json` (`agent/approvalStore.mjs`) — not just held in
+  memory — so it survives a page reload or server restart and can be acted
+  on later, by anyone with access to the dashboard. The frontend's "Pending
+  approvals" panel lists every open item with **Approve**/**Decline**
+  buttons. Approving calls `resolveApproval()` (`agent/orchestrator.mjs`),
+  which **re-discovers the offer and checks it's still available at the
+  approved price** before paying — a fare quoted when the decision was made
+  isn't guaranteed to still hold by the time a human gets to it. Declining
+  removes the pending item and triggers no payment at all.
+- **Traceability**: full decision log per booking in `audit-log.jsonl`,
+  including who/what approved or declined a held booking.
 - **Payment integrity**: providers price bookings from their own
   server-side quote cache, never from client-supplied values, and reject
   a transaction hash that's already been used for another booking.
 - **Failure handling**: a payment that fails on-ledger, or a booking
   confirmation that fails after payment, surfaces as an error rather than
   silently retrying or double-charging.
+
+### Which actions can the agent perform autonomously?
+
+This is the direct answer to the challenge's "which actions can the agent
+perform autonomously?" governance question, as actually enforced in code
+(`agent/policy.mjs`):
+
+| Action | Autonomous? |
+|---|---|
+| Query flight quotes from providers | **Always autonomous** — read-only, no cost |
+| Rank/score offers against trip preferences | **Always autonomous** — no cost |
+| Refuse a booking that exceeds budget or the company hard cap | **Always autonomous** — no money moves either way |
+| **Sign and submit the XRPL payment, and confirm the booking** | **Autonomous only if price ≤ auto-approve limit AND price ≤ the requester's own stated budget.** This is the only real financial action in the system, and it's the one action gated by policy. |
+| Same payment action, priced between the auto-approve limit and the hard cap | **Requires a human's explicit Approve** — held in `pending-approvals.json` until acted on |
+| Same payment action, priced above the hard cap or the requester's budget | **Never allowed, human or not** — outright refusal, no approval path exists |
+
+In short: discovery and ranking are unrestricted because they have no
+real-world consequence; the *only* autonomous financial action is the XRPL
+payment itself, and it only fires without a human when the price clears
+both the requester's own budget and the company's auto-approve threshold.
 
 ---
 
@@ -219,6 +252,11 @@ project:
 - [`A7C69D5E9376A94C27452CE4D43B3C60988EDE4B083D873A81F321BDEAC49B90`](https://testnet.xrpl.org/transactions/A7C69D5E9376A94C27452CE4D43B3C60988EDE4B083D873A81F321BDEAC49B90) — booked via `npm run agent` (full orchestrator loop), PNR `A2LZ97J`
 - [`9B5FC4397B9209B12C65F841FFFCB738AB01F74C31EAE3E2D5971833401F6B79`](https://testnet.xrpl.org/transactions/9B5FC4397B9209B12C65F841FFFCB738AB01F74C31EAE3E2D5971833401F6B79) — booked via `npm run test:payment`, PNR `ARFEUYH`
 - [`C21A0F9FB9E139A8ED2FD2ED369ACCF93B91C4548D958533692B83DDB460A678`](https://testnet.xrpl.org/transactions/C21A0F9FB9E139A8ED2FD2ED369ACCF93B91C4548D958533692B83DDB460A678) — booked via the frontend UI (KUL → BKK), PNR `AV7I6VL`
+- [`C76C896E782AC7866BCD192A3385487ADE156EA7915F5A4E85E84E34E220B7F2`](https://testnet.xrpl.org/transactions/C76C896E782AC7866BCD192A3385487ADE156EA7915F5A4E85E84E34E220B7F2) — held as `NEEDS_APPROVAL`, then paid after a human clicked **Approve**, PNR `AJTOWGR`
+
+A parallel `NEEDS_APPROVAL` case was also tested through to **Decline** — no
+transaction hash exists for it, which is the point: the payment path is
+provably unreachable unless a human approves.
 
 ---
 
@@ -228,8 +266,8 @@ project:
 - Reconcile the 402 challenge shape against the real XRPL x402 Facilitator
 - Escrow-based conditional payment release (pay on ticket confirmation
   rather than upfront) as a stronger failure-handling safeguard
-- Human-approval UI for the `NEEDS_APPROVAL` policy tier (currently just
-  halts and returns a decision object — no notification/approval flow yet)
+- Notify a human when a booking is held for approval (Slack/email) instead
+  of relying on someone checking the dashboard
 
 ---
 

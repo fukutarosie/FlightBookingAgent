@@ -6,6 +6,33 @@ import { validateTripRequest, decideAuthorization } from "./policy.mjs";
 import { discoverOffers } from "./discovery.mjs";
 import { rankOffers } from "./scoring.mjs";
 import { logEvent } from "./auditLog.mjs";
+import { createPending, getPending, removePending } from "./approvalStore.mjs";
+
+function makeEmitter(onEvent) {
+  return (event) => {
+    const entry = logEvent(event);
+    onEvent?.(entry);
+    return entry;
+  };
+}
+
+// Shared by the auto-approved path and the post-approval resume path: signs
+// and submits the actual XRPL payment for a chosen offer, then confirms the
+// booking. This is the ONLY place money moves in the whole system.
+async function payForOffer(offer, trip, resources, emit) {
+  const ownsClient = !resources.client;
+  const client = resources.client || (await getClient());
+  try {
+    const wallet = resources.wallet || (await loadOrCreateWallet(client, "COMPANY_WALLET_SEED"));
+    if (!resources.wallet) await ensureRlusdTrustline(client, wallet);
+
+    const booking = await payAndBook({ client, wallet, providerBase: offer.providerBaseUrl, offer, traveler: trip.traveler });
+    emit({ stage: "payment", offerId: offer.offerId, txHash: booking.txHash, pnr: booking.pnr });
+    return booking;
+  } finally {
+    if (ownsClient) await client.disconnect();
+  }
+}
 
 // The full need -> discovery -> decision -> payment -> outcome loop for one
 // trip request. Accepts an already-connected client/wallet (so a caller can
@@ -14,11 +41,7 @@ import { logEvent } from "./auditLog.mjs";
 // as it happens, in addition to the permanent audit log — this is what lets
 // a UI show the agent's reasoning live instead of only a final result.
 export async function bookFlight(trip, resources = {}) {
-  const emit = (event) => {
-    const entry = logEvent(event);
-    resources.onEvent?.(entry);
-    return entry;
-  };
+  const emit = makeEmitter(resources.onEvent);
 
   validateTripRequest(trip);
   emit({ stage: "trip_received", trip });
@@ -42,30 +65,56 @@ export async function bookFlight(trip, resources = {}) {
   emit({ stage: "authorization", offerId: winner.offerId, decision: auth.decision, reason: auth.reason });
 
   if (auth.decision !== "AUTO_APPROVED") {
-    const outcome = { status: auth.decision, reason: auth.reason, offer: winner, ranked };
-    emit({ stage: "outcome", status: outcome.status, offerId: winner.offerId });
+    let pendingId;
+    if (auth.decision === "NEEDS_APPROVAL") {
+      pendingId = createPending({ trip, offer: winner, ranked, reason: auth.reason });
+      emit({ stage: "pending_created", pendingId, offerId: winner.offerId });
+    }
+    const outcome = { status: auth.decision, reason: auth.reason, offer: winner, ranked, pendingId };
+    emit({ stage: "outcome", status: outcome.status, offerId: winner.offerId, pendingId });
     return outcome;
   }
 
-  const ownsClient = !resources.client;
-  const client = resources.client || (await getClient());
-  try {
-    const wallet = resources.wallet || (await loadOrCreateWallet(client, "COMPANY_WALLET_SEED"));
-    if (!resources.wallet) await ensureRlusdTrustline(client, wallet);
+  const booking = await payForOffer(winner, trip, resources, emit);
+  const outcome = { status: "BOOKED", offer: winner, booking, reason: auth.reason, ranked };
+  emit({ stage: "outcome", status: outcome.status, offerId: winner.offerId, pnr: booking.pnr });
+  return outcome;
+}
 
-    const booking = await payAndBook({
-      client,
-      wallet,
-      providerBase: winner.providerBaseUrl,
-      offer: winner,
-      traveler: trip.traveler,
-    });
-    emit({ stage: "payment", offerId: winner.offerId, txHash: booking.txHash, pnr: booking.pnr });
+// Resumes a booking that was held for human sign-off. `action` is "approve"
+// or "decline". Re-validates the offer is still available at the approved
+// price before paying — a fare quoted when the decision was made isn't
+// guaranteed to still hold by the time a human gets to it.
+export async function resolveApproval(pendingId, action, resources = {}) {
+  const emit = makeEmitter(resources.onEvent);
 
-    const outcome = { status: "BOOKED", offer: winner, booking, reason: auth.reason, ranked };
-    emit({ stage: "outcome", status: outcome.status, offerId: winner.offerId, pnr: booking.pnr });
+  const pending = getPending(pendingId);
+  if (!pending) throw new Error(`No pending approval found for id ${pendingId} — already resolved or expired.`);
+
+  if (action === "decline") {
+    removePending(pendingId);
+    emit({ stage: "approval_declined", pendingId, offerId: pending.offer.offerId });
+    const outcome = { status: "DECLINED", pendingId, offer: pending.offer };
+    emit({ stage: "outcome", status: outcome.status, offerId: pending.offer.offerId });
     return outcome;
-  } finally {
-    if (ownsClient) await client.disconnect();
   }
+  if (action !== "approve") throw new Error(`Unknown approval action: ${action}`);
+
+  emit({ stage: "approval_received", pendingId, offerId: pending.offer.offerId });
+
+  const { offers } = await discoverOffers(pending.trip);
+  const stillValid = offers.find((o) => o.offerId === pending.offer.offerId && o.price === pending.offer.price);
+  if (!stillValid) {
+    removePending(pendingId);
+    emit({ stage: "approval_invalidated", pendingId, offerId: pending.offer.offerId });
+    const outcome = { status: "EXPIRED", reason: "Offer is no longer available at the approved price — submit a new trip request." };
+    emit({ stage: "outcome", status: outcome.status, offerId: pending.offer.offerId });
+    return outcome;
+  }
+
+  const booking = await payForOffer(pending.offer, pending.trip, resources, emit);
+  removePending(pendingId);
+  const outcome = { status: "BOOKED", offer: pending.offer, booking, reason: "Approved by a human reviewer.", ranked: pending.ranked };
+  emit({ stage: "outcome", status: outcome.status, offerId: pending.offer.offerId, pnr: booking.pnr });
+  return outcome;
 }
