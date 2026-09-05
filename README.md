@@ -1,4 +1,4 @@
-# FlightAgent — AI-Native Corporate Travel Booking on XRPL
+# FlightBookingAgent
 
 An AI agent that fully automates flight booking for a company: given a trip
 request (origin, destination, dates, time window, price range), it discovers
@@ -9,7 +9,7 @@ comparison spreadsheet, an approval form, or a payment page; for fares
 above the auto-approve threshold, a human reviews and approves before any
 money moves.
 
-Built for the [Ripple: AI-Native Business on XRPL](https://github.com/Singhacks-2026/ripple) challenge.
+Built for the [Ripple: AI-Native Business on XRPL](https://github.com/Singhacks-2026/ripple) challenge, SingHacks 2026.
 
 ---
 
@@ -296,6 +296,68 @@ project:
 A parallel `NEEDS_APPROVAL` case was also tested through to **Decline** — no
 transaction hash exists for it, which is the point: the payment path is
 provably unreachable unless a human approves.
+
+---
+
+## Builder Feedback
+
+### What we built on XRPL
+
+- Real Testnet wallets (company + two providers), auto-generated and funded
+- RLUSD trustlines set up programmatically on every wallet that sends or
+  receives it
+- Real `Payment` transactions in RLUSD, with the order ID embedded in the
+  Memo field for reconciliation
+- Independent on-ledger verification — before confirming a booking, the
+  provider checks the actual transaction (`tesSUCCESS`, correct destination,
+  correct delivered amount) rather than trusting the client's word
+- Replay protection — a used transaction hash can never settle a second
+  booking
+- An x402-style payment challenge/response layered on top of that
+  settlement
+
+### Practical concerns we ran into
+
+- **RLUSD's currency code isn't a plain 3-letter code** — it's a 40-character
+  hex encoding, since it's an IOU rather than a native asset. Not obvious
+  unless you already know to look for it.
+- **Trustlines are required on both ends** — sender *and* receiver need a
+  trustline to the issuer before RLUSD can move at all. Easy to miss one
+  side and get a silent-looking failure.
+- **API version inconsistency tripped us up for real** — `rippled`'s `tx`
+  command returns fields at the top level in API v1, but nested under
+  `tx_json` (with the actually-delivered amount under
+  `meta.delivered_amount`) in v2. We shipped a verification bug because of
+  this: the payment had genuinely succeeded on-ledger, but our code failed
+  to recognize it.
+- **Faucet friction** — the official RLUSD faucet requires GitHub sign-in;
+  we ended up using a third-party faucet instead. It's also capped at 10
+  RLUSD per 24h, restrictive when iterating on payment logic repeatedly
+  during active development.
+- **Network fragmentation** — Testnet, Devnet, and Mainnet are completely
+  separate ledgers with separate issuer addresses and faucets. Not
+  dangerous, but a real source of early confusion.
+
+### Considerations for taking this to Mainnet
+
+- **Wallet custody** — seeds currently live in a local `.env` file;
+  production needs a real secrets manager or HSM, not a text file
+- **Real RLUSD issuer address differs from Testnet** — needs explicit
+  reconciliation, not a copy-paste
+- **Real provider integrations** — the two mock airlines need to become
+  real airline/OTA API integrations
+- **x402 facilitator** — our challenge/response shape is hand-rolled;
+  production should reconcile against the official spec/reference
+  implementation
+- **Escrow instead of direct payment** — at real stakes, paying upfront
+  with no delivery guarantee is risky; conditional release on ticket
+  confirmation is worth the added complexity
+- **Reserve costs at scale** — every account and trustline holds XRP in
+  reserve; this adds up with many provider relationships
+- **Compliance** — real money implies KYC/AML, refund/dispute handling, and
+  travel-industry regulatory obligations that don't exist on Testnet
+- **Infrastructure** — a production XRPL connection needs a dedicated
+  node/cluster with monitoring, not a public Testnet server
 
 ---
 
