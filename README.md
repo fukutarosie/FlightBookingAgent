@@ -1,4 +1,4 @@
-# FlightBookingAI — AI-Native Corporate Travel Booking on XRPL
+# FlightBookingAI - AI-Assisted Corporate Travel Booker
 
 An AI agent that fully automates flight booking for a company: given a trip
 request (origin, destination, dates, time window, price range), it discovers
